@@ -1,0 +1,23 @@
+.rgp-btn {
+	cursor: pointer;
+	border-radius: 5px;
+	font-size: 15px;
+	padding: 5px 10px 5px 10px;
+	text-decoration: none;
+	display: inline-block;
+	color: #ffffff !important;
+}
+
+.rgp-notify-btn {
+	background-color: #077bac !important;
+}
+.rgp-notify-btn:hover {
+	background-color: #07ACA6 !important;
+}
+
+.rgp-cancel-btn {
+	background-color: #ac0707 !important;
+}
+.rgp-cancel-btn:hover {
+	background-color: #ac3907 !important;
+}
