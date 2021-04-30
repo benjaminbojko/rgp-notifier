@@ -1,7 +1,7 @@
 let reloadIntervalId = null;
 let originalFaviconUrl = null;
 
-const reloadInterval = 3 * 1000; // ms
+const reloadInterval = 30 * 1000; // ms
 const uiRefreshInterval = 20;
 
 const customButtons = new Set();
