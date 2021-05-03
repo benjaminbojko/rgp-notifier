@@ -39,7 +39,7 @@ function closeAllNotifications() {
 
 function notifyAvailableSlot(slotText) {
   stopReloading();
-  updateCustomUi();
+  // updateCustomUi();
 	changeFavicon('available');
 
   const logoEl = document.querySelector('#fullpage-mode-logo img');
