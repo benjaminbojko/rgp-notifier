@@ -1,7 +1,7 @@
 {
   "name": "RGP Notifier",
   "description": "Unofficial extension that notifies you when a fully booked time slot on Rock Gym Pro becomes available.",
-  "version": "1.0",
+  "version": "1.1",
   "manifest_version": 3,
 	"author": "Benjamin Bojko",
 	"icons": {
