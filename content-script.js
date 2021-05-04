@@ -2,33 +2,55 @@ let reloadIntervalId = null;
 let originalFaviconUrl = null;
 
 const reloadInterval = 30 * 1000; // ms
-const uiRefreshInterval = 20;
 
 const customButtons = new Set();
 const selectedSlots = new Set();
-const selectedSlotDayButtons = new Map();
+const selectedSlotDates = new Map();
 const notifications = new Set();
 
-const waitingIconUrl = chrome.runtime.getURL('images/timer-line-96x96.png');
-const availableIconUrl = chrome.runtime.getURL('images/alarm-warning-line-96x96.png');
+const reloadDispatcher = new EventTarget();
 
+const currentDayClass = 'ui-datepicker-current-day';
+const waitingIconUrl = chrome.runtime.getURL('images/timer-line-96x96.png');
+const availableIconUrl = chrome.runtime.getURL(
+  'images/alarm-warning-line-96x96.png'
+);
+
+/*=================================
+  Cosmetics
+*/
+
+/**
+ * @param {String} style Supports 'waiting', 'available' and 'default'
+ */
 function changeFavicon(style) {
-  let linkEl = document.querySelector('link[rel~=\'icon\']');
-	if (!linkEl) {
-		originalFaviconUrl = '/favicon.ico';
+  let linkEl = document.querySelector("link[rel~='icon']");
+  if (!linkEl) {
+    originalFaviconUrl = '/favicon.ico';
     linkEl = document.createElement('link');
     linkEl.rel = 'icon';
     document.querySelector('head').appendChild(linkEl);
-}
-	if (!originalFaviconUrl) {
-		originalFaviconUrl = linkEl.href;
-	}
+  }
+  if (!originalFaviconUrl) {
+    originalFaviconUrl = linkEl.href;
+  }
   switch (style) {
-		case 'waiting': linkEl.href = waitingIconUrl; break;
-		case 'available': linkEl.href = availableIconUrl; break;
-		case 'default': default: linkEl.href = originalFaviconUrl; break;
-	}
+    case 'waiting':
+      linkEl.href = waitingIconUrl;
+      break;
+    case 'available':
+      linkEl.href = availableIconUrl;
+      break;
+    case 'default':
+    default:
+      linkEl.href = originalFaviconUrl;
+      break;
+  }
 }
+
+/*=================================
+  Notifications
+*/
 
 function closeAllNotifications() {
   for (const notification of notifications) {
@@ -38,9 +60,8 @@ function closeAllNotifications() {
 }
 
 function notifyAvailableSlot(slotText) {
-  stopReloading();
-  // updateCustomUi();
-	changeFavicon('available');
+  cancelSlotNotification(slotText);
+  changeFavicon('available');
 
   const logoEl = document.querySelector('#fullpage-mode-logo img');
 
@@ -53,7 +74,8 @@ function notifyAvailableSlot(slotText) {
     window.focus();
     notification.close();
 
-    const dayButton = selectedSlotDayButtons.get(slotText);
+    const date = selectedSlotDates.get(slotText);
+    const dayButton = getButtonFromDate(date);
     if (dayButton) {
       dayButton.click();
     }
@@ -61,15 +83,21 @@ function notifyAvailableSlot(slotText) {
   notifications.add(notification);
 }
 
-function cancelSlotNotification(slotText) {
+function cancelSlotNotification(slotText, dontUpdateUi) {
   selectedSlots.delete(slotText);
-  selectedSlotDayButtons.delete(slotText);
+  selectedSlotDates.delete(slotText);
   if (selectedSlots.size === 0) {
     stopReloading();
-		changeFavicon('default');
-	}
-  updateCustomUi();
+    changeFavicon('default');
+  }
+  if (!dontUpdateUi) {
+    updateCustomUi();
+  }
 }
+
+/*=================================
+  UI
+*/
 
 function updateCustomUi() {
   // Remove old buttons
@@ -99,61 +127,71 @@ function updateCustomUi() {
     if (isSelected && isAvailable) {
       // selected slot became available
       notifyAvailableSlot(slotText);
-      continue;
-			
-    } else if (isAvailable) {
-      // don't add UI if this slot was already available
-      continue;
-			
-    } else if (isSelected) {
-      // show cancel label
-      const cancelButton = document.createElement('a');
-      cancelButton.className = 'rgp-btn rgp-cancel-btn';
-      cancelButton.innerText = 'Cancel Notification';
-      cancelButton.addEventListener(
-        'click',
-        () => {
-          cancelSlotNotification(slotText);
-        },
-        {
-          capture: true,
-          once: true,
-          passive: true,
-        }
-      );
-      customButtons.add(cancelButton);
-      selectionEl.appendChild(cancelButton);
-			
-    } else {
-      // show notify button
-      const notifyButton = document.createElement('a');
-      notifyButton.className = 'rgp-btn rgp-notify-btn';
-      notifyButton.innerText = 'Notify Me';
-      notifyButton.addEventListener(
-        'click',
-        () => {
-          Notification.requestPermission();
-          selectedSlots.add(slotText);
-          selectedSlotDayButtons.set(slotText, getCurrentDayButton());
-          updateCustomUi();
-          startReloading();
-					changeFavicon('waiting');
-          // setTimeout(() => { notifyAvailableSlot(slotText); }, 2000); // for testing
-        },
-        {
-          capture: true,
-          once: true,
-          passive: true,
-        }
-      );
-      customButtons.add(notifyButton);
-      selectionEl.appendChild(notifyButton);
+    } else if (isSelected && !isAvailable) {
+      // show cancel button for selected slots
+      addCancelButton(selectionEl, slotText);
+    } else if (!isSelected && !isAvailable) {
+      // show notify button for fully booked slots
+      addNotifyButton(selectionEl, slotText);
     }
   }
 }
 
+function addCancelButton(selectionEl, slotText) {
+  const cancelButton = document.createElement('a');
+  cancelButton.className = 'rgp-btn rgp-cancel-btn';
+  cancelButton.innerText = 'Cancel Notification';
+  cancelButton.addEventListener(
+    'click',
+    () => {
+      cancelSlotNotification(slotText);
+    },
+    {
+      capture: true,
+      once: true,
+      passive: true,
+    }
+  );
+  customButtons.add(cancelButton);
+  selectionEl.appendChild(cancelButton);
+}
+
+function addNotifyButton(selectionEl, slotText) {
+  const notifyButton = document.createElement('a');
+  notifyButton.className = 'rgp-btn rgp-notify-btn';
+  notifyButton.innerText = 'Notify Me';
+  notifyButton.addEventListener(
+    'click',
+    () => {
+      const dateButton = getCurrentDayButton();
+
+      Notification.requestPermission();
+      selectedSlots.add(slotText);
+      selectedSlotDates.set(slotText, getDateFromDayButton(dateButton));
+
+      updateCustomUi();
+      startReloading();
+      changeFavicon('waiting');
+
+      // setTimeout(() => { notifyAvailableSlot(slotText); }, 2000); // for testing
+    },
+    {
+      capture: true,
+      once: true,
+      passive: true,
+    }
+  );
+  customButtons.add(notifyButton);
+  selectionEl.appendChild(notifyButton);
+}
+
+/*=================================
+  State
+*/
+
 function startReloading() {
   stopReloading();
+  reload();
   reloadIntervalId = setInterval(reload, reloadInterval);
 }
 
@@ -165,11 +203,68 @@ function stopReloading() {
 }
 
 function getCurrentDayButton() {
-  return document.querySelector('.ui-datepicker-current-day');
+  return document.querySelector(`.${currentDayClass}`);
+}
+
+function getDateFromDayButton(dateButton) {
+  const dateYear = parseInt(dateButton.dataset.year);
+  const dateMonth = parseInt(dateButton.dataset.month);
+  const dateDay = parseInt(dateButton.querySelector('a').innerText);
+  return new Date(dateYear, dateMonth, dateDay);
+}
+
+/**
+ * Returns the button that selects the provided date.
+ *
+ * Returns null if the button can't be found (e.g. another month was selected).
+ *
+ * Since buttons get recreated all the time, we can't store them and
+ * have to find a way to look them up from the UI.
+ * @param {Date} date
+ * @returns
+ */
+function getButtonFromDate(date) {
+  const allButtons = document.querySelectorAll('[data-handler="selectDay"]');
+
+  for (const button of allButtons) {
+    // We have to get each date button freshly from the DOM, since they get re-generated by RGP
+    const buttonDate = getDateFromDayButton(button);
+    if (
+      buttonDate.getFullYear() === date.getFullYear() &&
+      buttonDate.getMonth() === date.getMonth() &&
+      buttonDate.getDate() === date.getDate()
+    ) {
+      return button;
+    }
+  }
+
+  console.error(`No button found for ${date}`);
+
+  return null;
 }
 
 function reload() {
-  getCurrentDayButton().click(); // triggers reload via UI on currently selected day
+  // // -- The code below might allow updating multiple days
+  // // -- We'd have to chain each button click with a reload callback, then move on to the next button
+  // const selectedButtons = new Set();
+  // const currentDayButton = getCurrentDayButton();
+
+  // for (const [slotText, slotDate] of selectedSlotDates) {
+  //   // We have to get each date button freshly from the DOM, since they get re-generated by RGP
+  //   const button = getButtonFromDate(slotDate);
+  //   if (button) {
+  //     selectedButtons.add(button);
+  //   }
+  // }
+
+  // // triggers reload via UI on currently selected day
+  // for (const button of selectedButtons) {
+  //   if (button !== currentDayButton) {
+  //     button.click();
+  //   }
+  // }
+  
+  getCurrentDayButton().click();
 }
 
 function isSpinnerVisible() {
@@ -177,14 +272,17 @@ function isSpinnerVisible() {
   return !!spinner && spinner.style.display !== 'none';
 }
 
-function listenForReloads(callbackFn) {
+function listenForReloads() {
   const spinner = document.getElementById('spinner');
   let wasSpinnerVisible = isSpinnerVisible();
   const observer = new MutationObserver(function (mutations) {
-    if (isSpinnerVisible() !== wasSpinnerVisible && callbackFn) {
-      callbackFn();
+    const isVisible = isSpinnerVisible();
+    if (isVisible && !wasSpinnerVisible) {
+      reloadDispatcher.dispatchEvent(new Event('reloading'));
+    } else if (!isVisible && wasSpinnerVisible) {
+      reloadDispatcher.dispatchEvent(new Event('reloaded'));
     }
-    wasSpinnerVisible = isSpinnerVisible();
+    wasSpinnerVisible = isVisible;
   });
   observer.observe(spinner, {
     attributes: true,
@@ -192,8 +290,15 @@ function listenForReloads(callbackFn) {
   });
 }
 
+/*=================================
+  Bootstrap
+*/
+
 function init() {
-  listenForReloads(updateCustomUi);
+  
+  reloadDispatcher.addEventListener('reloaded', updateCustomUi);
+  
+  listenForReloads();
 
   // document.addEventListener('visibilitychange', () => {
   // 	if (document.visibilityState === 'visible') {
@@ -202,7 +307,6 @@ function init() {
   // });
 
   window.addEventListener('beforeunload', closeAllNotifications);
-	
 }
 
 init();
